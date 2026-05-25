@@ -10,9 +10,14 @@ from supabase import create_client, Client
 
 app = Flask(__name__)
 
-BOT_TOKEN    = os.environ["BOT_TOKEN"]
-SUPABASE_URL = os.environ["SUPABASE_URL"]
-SUPABASE_KEY = os.environ["SUPABASE_KEY"]
+BOT_TOKEN    = os.environ.get("BOT_TOKEN", "")
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
+
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    return jsonify({"error": f"Server error: {e}"}), 500
 AO_URL       = "https://accountops.org"
 ZP_URL       = "https://zeropoint.to/api/faceunlock-api"
 
@@ -76,12 +81,12 @@ def _get_zp_key(user_id):
 
 
 def _upsert(table: str, user_id: int, fields: dict):
-    r = _db().table(table).update(fields).eq("user_id", user_id).execute()
-    if not r.data:
-        try:
+    try:
+        r = _db().table(table).update(fields).eq("user_id", user_id).execute()
+        if not r.data:
             _db().table(table).insert({"user_id": user_id, **fields}).execute()
-        except Exception:
-            pass
+    except Exception as e:
+        raise RuntimeError(f"DB upsert failed ({table}): {e}") from e
 
 
 # ── AO helpers ────────────────────────────────────────────────────────────────
