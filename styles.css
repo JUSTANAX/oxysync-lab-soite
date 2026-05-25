@@ -116,8 +116,9 @@ input, textarea { font-family: inherit; color: inherit; }
 /* ===== bottom tab bar ===== */
 .tabbar {
   flex-shrink: 0;
-  height: 62px;
+  min-height: 62px;
   padding: 8px 8px 10px;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
   display: grid; grid-template-columns: repeat(4, 1fr);
   gap: 4px;
   background: rgba(11, 12, 14, 0.92);

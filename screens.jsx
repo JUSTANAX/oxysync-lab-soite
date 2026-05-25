@@ -75,12 +75,14 @@ function ScreenDashboard({ data, onRefresh, onNavigate, toast }) {
           <div style={{ width: 30, height: 30, borderRadius: 8, background: 'linear-gradient(135deg, #fbbf24 0%, #d97706 100%)', display: 'grid', placeItems: 'center', color: '#1a1106', fontWeight: 700, fontSize: 14, boxShadow: '0 0 0 1px rgba(251,191,36,0.2), 0 2px 8px rgba(251,191,36,0.18)' }}>$</div>
           <div>
             <div style={{ fontSize: 11, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.06, fontWeight: 500 }}>ZeroPoint баланс</div>
-            <div style={{ fontSize: 16, fontFamily: 'var(--font-mono)', fontWeight: 500, marginTop: 2 }}>
-              ${d.zp.usd.toFixed(2)}
-              <span style={{ fontSize: 11.5, color: d.zp.change24h >= 0 ? '#4ade80' : '#fb7185', marginLeft: 8 }}>
-                {d.zp.change24h >= 0 ? '+' : ''}{d.zp.change24h.toFixed(2)} 24ч
-              </span>
-            </div>
+            {d.zpBalance != null ? (
+              <div style={{ fontSize: 16, fontFamily: 'var(--font-mono)', fontWeight: 500, marginTop: 2 }}>
+                ${d.zpBalance.toFixed(2)}
+                {d.zpReserved > 0 && <span style={{ fontSize: 11.5, color: 'var(--text-3)', marginLeft: 8 }}>резерв ${d.zpReserved.toFixed(2)}</span>}
+              </div>
+            ) : (
+              <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 2 }}>ключ не задан</div>
+            )}
           </div>
         </div>
         <button className="btn btn-sm btn-secondary">Пополнить</button>
@@ -97,13 +99,13 @@ function ScreenDashboard({ data, onRefresh, onNavigate, toast }) {
             <div>
               <div style={{ fontSize: 13.5, fontWeight: 500 }}>AutoTradeToMain</div>
               <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 2 }} className="mono">
-                {apActive ? `${ap.queue.done + ap.queue.active}/${ap.queue.done + ap.queue.active + ap.queue.pending + ap.queue.stuck} обработано` : 'не запущен'}
+                {apActive ? `Фармит: ${ap.queue.farming} · Торгует: ${ap.queue.trading} · Сделок: ${ap.tradesDone}` : 'не запущен'}
               </div>
             </div>
           </div>
           {apActive ? <span className="badge ok"><span className="dot"/>RUNNING</span> : <span className="badge idle"><span className="dot"/>IDLE</span>}
         </div>
-        {apActive && <SegBar active={ap.queue.active} pending={ap.queue.pending} done={ap.queue.done} stuck={ap.queue.stuck}/>}
+        {apActive && <SegBar active={ap.queue.trading} pending={ap.queue.farming} done={0} stuck={ap.queue.stuck}/>}
       </div>
 
       <div className="card" style={{ cursor: 'pointer' }} onClick={() => onNavigate('face')}>
@@ -147,8 +149,7 @@ function ScreenAutopilot({ data, setData, progressStyle, openModal, toast }) {
   const update = (patch) => setData(d => ({ ...d, autopilot: { ...d.autopilot, ...patch } }));
   const [busy, setBusy] = useS(false);
 
-  const total    = ap.queue.active + ap.queue.pending + ap.queue.done + ap.queue.stuck;
-  const progress = total > 0 ? Math.round((ap.queue.done / total) * 100) : 0;
+  const total = ap.queue.total || (ap.queue.farming + ap.queue.trading + ap.queue.stuck);
 
   // Debounced save for stepper changes
   const saveConfig = useM(() => makeDebounced(body => API.setAutopilotConfig(body).catch(() => {})), []);
@@ -159,11 +160,11 @@ function ScreenAutopilot({ data, setData, progressStyle, openModal, toast }) {
     try {
       if (ap.running) {
         await API.stopAutopilot();
-        update({ running: false, queue: { active: 0, pending: 0, done: 0, stuck: 0 } });
+        update({ running: false, queue: { farming: 0, trading: 0, stuck: 0, total: 0 }, tradesDone: 0 });
         toast('Авто-пилот остановлен', 'warn');
       } else {
         const res = await API.startAutopilot();
-        update({ running: true, startedAt: new Date(), queue: { active: 0, pending: res.queued || 0, done: 0, stuck: 0 } });
+        update({ running: true, startedAt: new Date(), queue: { farming: res.queued || 0, trading: 0, stuck: 0, total: res.queued || 0 }, tradesDone: 0 });
         toast(`Запущен · ${res.queued || 0} в очереди`);
       }
     } catch (e) {
@@ -189,18 +190,18 @@ function ScreenAutopilot({ data, setData, progressStyle, openModal, toast }) {
             </div>
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div className="h-display" style={{ fontSize: 32 }}>{progress}<span style={{ fontSize: 18, color: 'var(--text-3)' }}>%</span></div>
-            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }} className="mono">прогресс</div>
+            <div className="h-display" style={{ fontSize: 32 }}>{ap.tradesDone}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }} className="mono">сделок</div>
           </div>
         </div>
 
-        <SegBar active={ap.queue.active} pending={ap.queue.pending} done={ap.queue.done} stuck={ap.queue.stuck} style={progressStyle}/>
+        <SegBar active={ap.queue.trading} pending={ap.queue.farming} done={0} stuck={ap.queue.stuck} style={progressStyle}/>
 
         <div className="stat-grid cols-4" style={{ marginTop: 14, gap: 6 }}>
           {[
-            { v: ap.queue.active,  label: 'active',  bg: 'var(--accent-soft)', color: 'var(--accent)' },
-            { v: ap.queue.pending, label: 'pending', bg: 'var(--idle-soft)',   color: 'var(--text-2)' },
-            { v: ap.queue.done,    label: 'done',    bg: 'var(--ok-soft)',     color: '#4ade80' },
+            { v: ap.queue.trading, label: 'trading', bg: 'var(--accent-soft)', color: 'var(--accent)' },
+            { v: ap.queue.farming, label: 'farming', bg: 'var(--idle-soft)',   color: 'var(--text-2)' },
+            { v: ap.tradesDone,    label: 'done',    bg: 'var(--ok-soft)',     color: '#4ade80' },
             { v: ap.queue.stuck,   label: 'stuck',   bg: 'var(--bad-soft)',    color: '#fb7185' },
           ].map(({ v, label, bg, color }) => (
             <div key={label} style={{ textAlign: 'center', padding: '8px 4px', borderRadius: 8, background: bg }}>
@@ -217,12 +218,12 @@ function ScreenAutopilot({ data, setData, progressStyle, openModal, toast }) {
         {ap.recent.map((r, i) => (
           <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: i < ap.recent.length - 1 ? '1px solid var(--border)' : 'none' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: r.status === 'done' ? 'var(--ok)' : r.status === 'active' ? 'var(--accent)' : 'var(--bad)', boxShadow: r.status === 'active' ? '0 0 6px var(--accent-glow)' : 'none' }}/>
-              <span style={{ fontSize: 13, fontFamily: 'var(--font-mono)' }}>{r.username}</span>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: r.type === 'trade_complete' ? 'var(--ok)' : r.type === 'got_pet' ? 'var(--accent)' : r.type === 'stuck' ? 'var(--bad)' : 'var(--text-3)', boxShadow: r.type === 'got_pet' ? '0 0 6px var(--accent-glow)' : 'none' }}/>
+              <span style={{ fontSize: 13, fontFamily: 'var(--font-mono)' }}>{r.username || '—'}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 11.5, color: 'var(--text-3)' }} className="mono">{r.t < 60 ? `${r.t}с` : `${Math.floor(r.t/60)}м`}</span>
-              <span className={`badge ${r.status === 'done' ? 'ok' : r.status === 'active' ? 'accent' : 'bad'}`} style={{ textTransform: 'lowercase', fontSize: 10.5 }}>{r.status}</span>
+              <span style={{ fontSize: 11.5, color: 'var(--text-3)' }} className="mono">{r.time ? timeAgo(r.time) : '—'}</span>
+              <span className={`badge ${r.type === 'trade_complete' ? 'ok' : r.type === 'got_pet' ? 'accent' : r.type === 'stuck' ? 'bad' : 'idle'}`} style={{ textTransform: 'lowercase', fontSize: 10.5 }}>{r.type}</span>
             </div>
           </div>
         ))}
@@ -236,8 +237,12 @@ function ScreenAutopilot({ data, setData, progressStyle, openModal, toast }) {
           <span className="row-val">@{ap.mainAccount || '—'} {Icon.chevR(14)}</span>
         </div>
         <div className="row" onClick={() => openModal('configPicker')} style={{ cursor: 'pointer' }}>
-          <span className="row-key">Игровой конфиг</span>
+          <span className="row-key">Трейд конфиг</span>
           <span className="row-val">{ap.config?.name || 'Не задан'} {Icon.chevR(14)}</span>
+        </div>
+        <div className="row" onClick={() => openModal('farmConfigPicker')} style={{ cursor: 'pointer' }}>
+          <span className="row-key">Фарм конфиг</span>
+          <span className="row-val">{ap.farmConfig?.name || 'Не задан'} {Icon.chevR(14)}</span>
         </div>
         <div className="row" onClick={() => openModal('petManager')} style={{ cursor: 'pointer', alignItems: 'flex-start' }}>
           <span className="row-key" style={{ alignSelf: 'flex-start', paddingTop: 4 }}>Питомцы ({ap.pets.length})</span>
@@ -255,10 +260,10 @@ function ScreenAutopilot({ data, setData, progressStyle, openModal, toast }) {
       <div className="card">
         <div className="row">
           <div>
-            <div className="row-key">Размер батча</div>
+            <div className="row-key">Трейдеров на VIP-сервер</div>
             <div style={{ fontSize: 11, color: 'var(--text-4)', marginTop: 2 }}>аккаунтов одновременно</div>
           </div>
-          <Stepper value={ap.batchSize} onChange={v => { update({ batchSize: v }); saveConfig({ batch_size: v }); }} min={1} max={50} step={1}/>
+          <Stepper value={ap.maxTradersPerServer} onChange={v => { update({ maxTradersPerServer: v }); saveConfig({ max_traders_per_server: v }); }} min={1} max={50} step={1}/>
         </div>
         <div className="row">
           <div>
@@ -335,7 +340,18 @@ function ScreenFace({ data, setData, openModal, toast }) {
     }
   };
 
-  const saveAutoUnlock = useM(() => makeDebounced(body => API.setAlerts(body).catch(() => {})), []);
+  const saveFuConfig = useM(() => makeDebounced(body => API.setFaceUnlock(body).catch(() => {})), []);
+
+  useE(() => {
+    if (!isActive) return;
+    const id = setInterval(async () => {
+      try {
+        const fu = await API.getFaceUnlock();
+        setData(d => ({ ...d, faceUnlock: mapFaceUnlock(fu) }));
+      } catch(e) {}
+    }, 10000);
+    return () => clearInterval(id);
+  }, [isActive]);
 
   return (
     <div className="screen-scroll">
@@ -408,7 +424,7 @@ function ScreenFace({ data, setData, openModal, toast }) {
                     <div style={{ width: 28, height: 28, borderRadius: 6, background: 'var(--bg-raised)', display: 'grid', placeItems: 'center', color: 'var(--text-2)' }}>{Icon.download(14)}</div>
                     <div style={{ fontSize: 13, fontFamily: 'var(--font-mono)' }}>{fname}</div>
                   </div>
-                  <button className="btn btn-sm btn-ghost" onClick={() => toast(`Загрузка ${fname}`)}>скачать</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => API.downloadFile(fname).catch(e => toast(e.message, 'bad'))}>скачать</button>
                 </div>
               );
             })}
@@ -423,14 +439,18 @@ function ScreenFace({ data, setData, openModal, toast }) {
             <div className="row-key" style={{ color: 'var(--text-1)', fontWeight: 500 }}>Автоматический запуск</div>
             <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 3 }}>Циклически запускать face unlock</div>
           </div>
-          <Toggle on={fu.autoEnabled} onChange={v => { update({ autoEnabled: v }); toast(v ? 'Авто-цикл включён' : 'Авто-цикл выключен', v ? 'ok' : 'warn'); }}/>
+          <Toggle on={fu.autoEnabled} onChange={async v => {
+            update({ autoEnabled: v });
+            try { await API.setFaceUnlock({ auto_enabled: v }); } catch(e) {}
+            toast(v ? 'Авто-цикл включён' : 'Авто-цикл выключен', v ? 'ok' : 'warn');
+          }}/>
         </div>
         <div className="row" style={{ borderBottom: 'none' }}>
           <div>
             <div className="row-key">Интервал</div>
             <div style={{ fontSize: 11, color: 'var(--text-4)', marginTop: 2 }}>часов между запусками</div>
           </div>
-          <Stepper value={fu.intervalHours} onChange={v => update({ intervalHours: v })} min={1} max={48} step={1} suffix="ч"/>
+          <Stepper value={fu.intervalHours} onChange={v => { const p=[1,2,3,4,6]; const s=p.reduce((a,b)=>Math.abs(b-v)<Math.abs(a-v)?b:a); update({ intervalHours: s }); saveFuConfig({ interval_hours: s }); }} min={1} max={6} step={1} suffix="ч"/>
         </div>
       </div>
 
@@ -502,7 +522,7 @@ function ScreenAlerts({ data, setData, toast }) {
           </div>
           <Toggle on={al.enabled} onChange={async v => {
             try {
-              await API.setAlerts({ toggle: true });
+              await API.setAlerts({ enabled: v });
               update({ enabled: v });
               toast(v ? 'Уведомления включены' : 'Уведомления выключены', v ? 'ok' : 'warn');
             } catch (e) { toast(e.message, 'bad'); }

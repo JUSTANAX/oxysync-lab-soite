@@ -14,7 +14,7 @@ const ACCENT_PRESETS = {
   violet: { accent: '#8b5cf6', deep: '#5b21b6', soft: 'rgba(139,92,246,0.12)',   glow: 'rgba(139,92,246,0.35)'  },
 };
 
-function App() {
+function App({ isTelegram = false }) {
   const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
     "accent": "#4a7bf7",
     "density": "regular",
@@ -122,20 +122,22 @@ function App() {
       background: 'var(--bg-app)',
       position: 'relative', overflow: 'hidden',
     }}>
-      {/* Telegram chrome */}
-      <div className="tg-chrome">
-        <div className="bot">
-          <div className="bot-avatar">{Icon.planet(20)}</div>
-          <div className="bot-meta">
-            <div className="bot-name">OxySync</div>
-            <div className="bot-handle">mini app</div>
+      {/* Telegram chrome — скрывается в реальном Telegram */}
+      {!isTelegram && (
+        <div className="tg-chrome">
+          <div className="bot">
+            <div className="bot-avatar">{Icon.planet(20)}</div>
+            <div className="bot-meta">
+              <div className="bot-name">OxySync</div>
+              <div className="bot-handle">mini app</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button className="tg-btn" title="меню">{Icon.kebab()}</button>
+            <button className="tg-btn" title="закрыть (превью — в Telegram закрывает приложение)" onClick={() => alert('В Telegram эта кнопка закрывает Mini App')}>{Icon.x(15)}</button>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button className="tg-btn" title="меню">{Icon.kebab()}</button>
-          <button className="tg-btn" title="закрыть">{Icon.x(15)}</button>
-        </div>
-      </div>
+      )}
 
       {/* Screens */}
       <div className="app-body">
@@ -163,11 +165,29 @@ function App() {
           onClose={() => setModal(null)}
           configs={data.configs}
           current={data.autopilot.config}
+          title="Трейд конфиг"
+          description="Применяется когда аккаунт получил пета и переходит в trading."
           onPick={async c => {
             try {
               await API.setAutopilotConfig({ config_id: c.id });
               setData(d => ({ ...d, autopilot: { ...d.autopilot, config: c } }));
-              toast(`Конфиг: ${c.name}`);
+              toast(`Трейд конфиг: ${c.name}`);
+            } catch (e) { toast(e.message, 'bad'); }
+          }}
+          toast={toast}
+        />
+        <ModalConfigPicker
+          open={modal === 'farmConfigPicker'}
+          onClose={() => setModal(null)}
+          configs={data.configs}
+          current={data.autopilot.farmConfig}
+          title="Фарм конфиг"
+          description="Применяется пока аккаунт фармит (до получения пета)."
+          onPick={async c => {
+            try {
+              await API.setAutopilotConfig({ farm_config_id: c.id });
+              setData(d => ({ ...d, autopilot: { ...d.autopilot, farmConfig: c } }));
+              toast(`Фарм конфиг: ${c.name}`);
             } catch (e) { toast(e.message, 'bad'); }
           }}
           toast={toast}
@@ -222,40 +242,44 @@ function App() {
         })}
       </nav>
 
-      {/* Tweaks panel */}
-      <TweaksPanel title="Tweaks">
-        <TweakSection label="Акцент"/>
-        <TweakColor
-          label="Цвет"
-          value={tweaks.accent}
-          options={['#4a7bf7', '#06b6d4', '#8b5cf6']}
-          onChange={hex => setTweak('accent', hex)}
-        />
-        <TweakSection label="Плотность"/>
-        <TweakRadio
-          label="Density"
-          value={tweaks.density}
-          options={['regular', 'compact']}
-          onChange={v => setTweak('density', v)}
-        />
-        <TweakSection label="Прогресс авто-пилота"/>
-        <TweakRadio
-          label="Стиль"
-          value={tweaks.progressStyle}
-          options={['segmented', 'dots']}
-          onChange={v => setTweak('progressStyle', v)}
-        />
-      </TweaksPanel>
+      {/* Tweaks panel — только в dev-режиме (desktop preview) */}
+      {!isTelegram && (
+        <TweaksPanel title="Tweaks">
+          <TweakSection label="Акцент"/>
+          <TweakColor
+            label="Цвет"
+            value={tweaks.accent}
+            options={['#4a7bf7', '#06b6d4', '#8b5cf6']}
+            onChange={hex => setTweak('accent', hex)}
+          />
+          <TweakSection label="Плотность"/>
+          <TweakRadio
+            label="Density"
+            value={tweaks.density}
+            options={['regular', 'compact']}
+            onChange={v => setTweak('density', v)}
+          />
+          <TweakSection label="Прогресс авто-пилота"/>
+          <TweakRadio
+            label="Стиль"
+            value={tweaks.progressStyle}
+            options={['segmented', 'dots']}
+            onChange={v => setTweak('progressStyle', v)}
+          />
+        </TweaksPanel>
+      )}
     </div>
   );
 }
 
-// ───── Mount inside iPhone frame ─────
+// ───── Mount — Telegram-режим или desktop preview ─────
 function Mount() {
+  const isTelegram = !!(window.Telegram?.WebApp?.initData);
   const ref = useAR(null);
   const [scale, setScale] = useAS(1);
 
   useAE(() => {
+    if (isTelegram) return;
     const calc = () => {
       const margin = 24;
       const sw = (window.innerWidth  - margin * 2) / 402;
@@ -265,7 +289,20 @@ function Mount() {
     calc();
     window.addEventListener('resize', calc);
     return () => window.removeEventListener('resize', calc);
-  }, []);
+  }, [isTelegram]);
+
+  if (isTelegram) {
+    return (
+      <div style={{
+        height: '100vh', width: '100%',
+        background: 'var(--bg-app)',
+        display: 'flex', flexDirection: 'column',
+        overflow: 'hidden',
+      }}>
+        <App isTelegram={true}/>
+      </div>
+    );
+  }
 
   return (
     <div style={{
@@ -278,7 +315,7 @@ function Mount() {
       <div style={{ transform: `scale(${scale})`, transformOrigin: 'center center', position: 'relative', zIndex: 1 }}>
         <IOSDevice width={402} height={874} dark={true}>
           <div style={{ height: '100%', paddingTop: 44, paddingBottom: 28, background: 'var(--bg-app)', display: 'flex', flexDirection: 'column' }}>
-            <App/>
+            <App isTelegram={false}/>
           </div>
         </IOSDevice>
       </div>

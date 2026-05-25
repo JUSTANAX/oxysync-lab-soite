@@ -1,15 +1,43 @@
 // Modals: API key input, config picker, pet manager, main account
-const { useState: useMS } = React;
+const { useState: useMS, useEffect: useSheetE, useRef: useSheetR } = React;
 
 function SheetWrap({ open, onClose, title, children, footer, height }) {
+  const [mounted, setMounted] = useMS(open);
+  const timerRef = useSheetR(null);
+
+  useSheetE(() => {
+    if (open) {
+      setMounted(true);
+      if (timerRef.current) clearTimeout(timerRef.current);
+    } else {
+      // Ждём окончания анимации (320ms), потом полностью убираем из DOM
+      timerRef.current = setTimeout(() => setMounted(false), 360);
+    }
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, [open]);
+
+  // Закрыть по Escape
+  useSheetE(() => {
+    if (!open) return;
+    const handler = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [open, onClose]);
+
+  if (!mounted) return null;
+
   return (
     <>
-      <div className={`sheet-overlay ${open ? 'open' : ''}`} onClick={onClose} style={{ pointerEvents: open ? 'auto' : 'none' }}/>
+      <div
+        className={`sheet-overlay ${open ? 'open' : ''}`}
+        onClick={onClose}
+        style={{ pointerEvents: 'auto' }}
+      />
       <div className={`sheet ${open ? 'open' : ''}`} style={height ? { maxHeight: height } : undefined}>
         <div className="sheet-grabber"/>
         <div className="sheet-hdr">
           <h3>{title}</h3>
-          <button className="btn-ghost" onClick={onClose} style={{ width: 30, height: 30, borderRadius: 8, display: 'grid', placeItems: 'center' }}>
+          <button type="button" className="btn-ghost" onClick={onClose} style={{ width: 30, height: 30, borderRadius: 8, display: 'grid', placeItems: 'center' }}>
             {Icon.x(16)}
           </button>
         </div>
@@ -47,16 +75,16 @@ function ModalZpKey({ open, onClose, value, toast }) {
 }
 
 // ─── Config picker ───
-function ModalConfigPicker({ open, onClose, configs, current, onPick, toast }) {
+function ModalConfigPicker({ open, onClose, configs, current, onPick, toast, title = 'Выбрать конфиг', description = 'Будет применён ко всем аккаунтам при переходе в trading.' }) {
   return (
-    <SheetWrap open={open} onClose={onClose} title="Выбрать конфиг">
+    <SheetWrap open={open} onClose={onClose} title={title}>
       <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--text-3)' }}>
-        Будет применён ко всем аккаунтам в очереди при запуске.
+        {description}
       </div>
       {configs.map(c => (
         <div
           key={c.id}
-          className={`list-row ${current.id === c.id ? 'selected' : ''}`}
+          className={`list-row ${current?.id === c.id ? 'selected' : ''}`}
           onClick={() => { onPick(c); onClose(); }}
         >
           <div className="lr-main">

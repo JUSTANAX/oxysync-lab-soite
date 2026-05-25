@@ -36,6 +36,23 @@ const API = {
   getFaceUnlock:      ()       => apiFetch('GET',    '/api/faceunlock'),
   startFaceUnlock:    ()       => apiFetch('POST',   '/api/faceunlock/start'),
   cancelFaceUnlock:   ()       => apiFetch('POST',   '/api/faceunlock/cancel'),
+  setFaceUnlock:      body     => apiFetch('PUT',    '/api/faceunlock', body),
+  downloadFile: async (filename) => {
+    const tg = window.Telegram?.WebApp;
+    const headers = {};
+    if (tg?.initData) headers['X-Init-Data'] = tg.initData;
+    const res = await fetch(`${API_BASE}/api/faceunlock/download/${encodeURIComponent(filename)}`, { headers });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
 };
 
 // ── Data mappers ─────────────────────────────────────────────────────────────
@@ -47,29 +64,37 @@ function mapDashboard(d) {
     passiveCount:   d.passive_count  || 0,
     unstableCount:  d.unstable_count || 0,
     totalConnected: (d.active_count || 0) + (d.passive_count || 0) + (d.unstable_count || 0),
+    zpBalance:      d.zp_balance?.effective ?? null,
+    zpReserved:     d.zp_balance?.reserved  ?? 0,
     lastUpdated:    new Date(),
   };
 }
 
 function mapAutopilot(ap, existingConfigs) {
   if (!ap) return MOCK.autopilot;
-  const configName = existingConfigs?.find(c => c.id === ap.config_id)?.name || (ap.config_id ? `Config ${ap.config_id}` : 'Не задан');
+  const configName     = existingConfigs?.find(c => c.id === ap.config_id)?.name      || (ap.config_id      ? `Config ${ap.config_id}`      : 'Не задан');
+  const farmConfigName = existingConfigs?.find(c => c.id === ap.farm_config_id)?.name  || (ap.farm_config_id ? `Config ${ap.farm_config_id}` : 'Не задан');
   return {
     ...MOCK.autopilot,
     running:       ap.running      || false,
     startedAt:     ap.started_at   ? new Date(ap.started_at.replace(' ', 'T') + 'Z') : null,
     mainAccount:   ap.main_account || '',
     pets:          (ap.pets || []).map(p => ({ id: p.pet_id, rowId: p.id, label: p.pet_id, set: '' })),
-    config:        { id: ap.config_id || null, name: configName },
-    batchSize:     ap.batch_size     || 10,
-    checkInterval: ap.check_interval || 30,
-    stuckTimeout:  ap.stuck_timeout  || 10,
+    config:        { id: ap.config_id      || null, name: configName },
+    farmConfig:    { id: ap.farm_config_id || null, name: farmConfigName },
+    tradesDone:         ap.trades_done           || 0,
+    maxTradersPerServer: ap.max_traders_per_server ?? 10,
+    checkInterval:      ap.check_interval        || 30,
+    stuckTimeout:       ap.stuck_timeout         || 10,
     queue: {
-      active:  ap.queue?.active  || 0,
-      pending: ap.queue?.pending || 0,
-      done:    ap.queue?.done    || 0,
-      stuck:   0,
+      farming: ap.queue?.farming || 0,
+      trading: ap.queue?.trading || 0,
+      stuck:   ap.queue?.stuck   || 0,
+      total:   ap.queue?.total   || 0,
     },
+    recent: ap.recent
+      ? ap.recent.map(r => ({ username: r.username, type: r.type, time: r.time ? new Date(r.time.replace(' ', 'T') + (r.time.includes('Z') ? '' : 'Z')) : null }))
+      : [],
   };
 }
 
@@ -83,7 +108,10 @@ function mapFaceUnlock(fu) {
   const job = fu.job;
   return {
     ...MOCK.faceUnlock,
-    apiKeyMasked: fu.zp_key ? 'zp_••••••••••••••' : 'не задан',
+    apiKeyMasked:  fu.zp_key         ? 'zp_••••••••••••••' : 'не задан',
+    autoEnabled:   fu.auto_enabled   ?? MOCK.faceUnlock.autoEnabled,
+    intervalHours: fu.interval_hours ?? MOCK.faceUnlock.intervalHours,
+    nextRunAt:     fu.next_run_at    ? new Date(fu.next_run_at) : MOCK.faceUnlock.nextRunAt,
     job: job ? {
       id:        job.job_id    || '',
       status:    job.status    || 'pending',
