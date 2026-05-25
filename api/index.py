@@ -59,6 +59,8 @@ def _validate(raw: str) -> int | None:
 
 
 def _auth():
+    if not BOT_TOKEN:
+        return None, ({"error": "BOT_TOKEN not configured on server"}, 500)
     raw = request.headers.get("X-Init-Data", "")
     if not raw:
         return None, ({"error": "Unauthorized"}, 401)
